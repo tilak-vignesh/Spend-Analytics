@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spend Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #e3e6ea;
+    --text: #1b1f24; --muted: #5f6b7a; --accent: #2f6fde; --accent-soft: #e5eefc;
+    --debit: #c2412d; --credit: #1f8a4c; --warn: #b7791f; --warn-soft: #fdf3e1;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --surface: #171b21; --surface-2: #1e232b; --border: #2a313b;
+      --text: #e7eaee; --muted: #98a2b3; --accent: #6ea2ff; --accent-soft: #1b2a45;
+      --debit: #f07a66; --credit: #5ccf8e; --warn: #f0b95a; --warn-soft: #3a2e17;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; padding: 12px 24px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 17px; margin: 0 auto 0 0; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 24px 48px; display: grid; gap: 16px; }
+  select, input[type=search], button {
+    font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px; min-width: 0;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 24px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .up { color: var(--debit); } .down { color: var(--credit); }
+  .charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .chart-box { position: relative; height: 280px; }
+  #banner {
+    display: none; padding: 10px 14px; border-radius: 8px; background: var(--accent-soft);
+    border: 1px solid var(--border);
+  }
+  #banner.error { background: var(--warn-soft); }
+  .anomaly {
+    display: flex; gap: 12px; align-items: flex-start; padding: 10px 0;
+    border-top: 1px solid var(--border);
+  }
+  .anomaly:first-of-type { border-top: 0; }
+  .anomaly .note { flex: 1; }
+  .anomaly .meta { color: var(--muted); font-size: 12px; }
+  .tag {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    background: var(--warn-soft); color: var(--warn); white-space: nowrap;
+  }
+  .tag.src { background: var(--surface-2); color: var(--muted); }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .filters label { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  .filters input[type=search] { min-width: 220px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.amount.debit { color: var(--debit); } td.amount.credit { color: var(--credit); }
+  td.date { white-space: nowrap; color: var(--muted); }
+  .payee { font-weight: 550; }
+  .narration { color: var(--muted); font-size: 12px; max-width: 420px; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
+  td select { padding: 3px 6px; max-width: 180px; }
+  .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 12px; color: var(--muted); }
+  .empty { color: var(--muted); padding: 12px 0; }
+  .chat-log { display: grid; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+  .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; }
+  .msg.user { justify-self: end; background: var(--accent); color: #fff; }
+  .msg.assistant { justify-self: start; background: var(--surface-2); }
+  .msg.error { background: var(--warn-soft); }
+  .msg details { margin-top: 6px; font-size: 12px; color: var(--muted); white-space: normal; }
+  .msg summary { cursor: pointer; }
+  .msg pre { margin: 6px 0 0; padding: 8px; background: var(--surface); border: 1px solid var(--border);
+             border-radius: 6px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+  .chat-form { display: flex; gap: 8px; margin-top: 12px; }
+  .chat-form input { flex: 1; font: inherit; color: var(--text); background: var(--surface);
+                     border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .suggestions button { font-size: 12px; border-radius: 999px; }
+  .chat-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .chat-head button { font-size: 12px; padding: 3px 8px; }
+  @media (max-width: 900px) {
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .charts { grid-template-columns: minmax(0, 1fr); }
+    header, main { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spend Dashboard</h1>
+  <select id="month" aria-label="Month"></select>
+  <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+  <button id="upload" class="primary">Upload statement</button>
+</header>
+
+<main>
+  <div id="banner" role="status"></div>
+
+  <section class="cards">
+    <div class="panel card"><div class="label">Spend</div><div class="value" id="c-spend">–</div><div class="sub" id="c-spend-sub"></div></div>
+    <div class="panel card"><div class="label">Income</div><div class="value" id="c-income">–</div><div class="sub">excl. own-account transfers</div></div>
+    <div class="panel card"><div class="label">Transactions</div><div class="value" id="c-count">–</div><div class="sub" id="c-count-sub"></div></div>
+    <div class="panel card"><div class="label">Open anomalies</div><div class="value" id="c-anom">–</div><div class="sub">across all months</div></div>
+  </section>
+
+  <section class="charts">
+    <div class="panel"><h2>Spend by category <span class="meta">(click a bar to filter)</span></h2><div class="chart-box"><canvas id="categoryChart"></canvas></div></div>
+    <div class="panel"><h2 id="timeTitle">Daily spend</h2><div class="chart-box"><canvas id="timeChart"></canvas></div></div>
+  </section>
+
+  <section class="panel" aria-label="Chat">
+    <div class="chat-head">
+      <h2>Ask about your spending</h2>
+      <button id="chatClear" type="button">New conversation</button>
+    </div>
+    <div id="chatLog" class="chat-log" aria-live="polite"></div>
+    <form id="chatForm" class="chat-form">
+      <input id="chatInput" type="text" maxlength="2000" autocomplete="off"
+             placeholder="e.g. How much did I spend on food delivery this month?" aria-label="Question">
+      <button id="chatSend" class="primary" type="submit">Ask</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Anomalies</h2>
+    <div id="anomalies"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Transactions</h2>
+    <div class="filters">
+      <input id="q" type="search" placeholder="Search payee or narration" aria-label="Search">
+      <select id="category" aria-label="Category filter"><option value="">All categories</option></select>
+      <select id="direction" aria-label="Direction">
+        <option value="">Debits &amp; credits</option><option value="debit">Debits</option><option value="credit">Credits</option>
+      </select>
+      <label><input id="applyPayee" type="checkbox" checked> Category edits apply to the whole payee</label>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th class="amount">Amount</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="pager"><span id="pageInfo"></span><button id="prev">Previous</button><button id="next">Next</button></div>
+  </section>
+</main>
+
+<script>
+const PAGE = 50;
+const state = { month: null, category: "", q: "", direction: "", offset: 0, categories: [] };
+const charts = {};
+const $ = (id) => document.getElementById(id);
+const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+const money = (paise) => inr.format(paise / 100);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail ? JSON.stringify(body.detail).replace(/^"|"$/g, "") : res.statusText);
+  return body;
+}
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(c ?? ""));
+  return node;
+}
+
+function banner(text, isError = false) {
+  const b = $("banner");
+  b.textContent = text;
+  b.className = isError ? "error" : "";
+  b.style.display = text ? "block" : "none";
+}
+
+function qs(params) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== null && v !== "" && v !== undefined) p.set(k, v);
+  return p.toString();
+}
+
+// --- data loading ----------------------------------------------------------
+
+async function loadMonths() {
+  const months = await api("/api/months");
+  const select = $("month");
+  select.replaceChildren(...months.map((m) => el("option", { value: m }, monthLabel(m))));
+  if (!months.length) {
+    select.append(el("option", { value: "" }, "No data yet"));
+    state.month = null;
+  } else if (!months.includes(state.month)) {
+    state.month = months[0];
+  }
+  select.value = state.month ?? "";
+  return months;
+}
+
+function monthLabel(m) {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+async function loadSummary() {
+  const s = await api("/api/dashboard/summary?" + qs({ month: state.month }));
+  $("c-spend").textContent = money(s.spend_paise);
+  $("c-income").textContent = money(s.income_paise);
+  $("c-count").textContent = s.txn_count;
+  $("c-anom").textContent = s.open_anomalies;
+  $("c-count-sub").textContent = s.uncategorized_count ? `${s.uncategorized_count} uncategorized` : "all categorized";
+  const sub = $("c-spend-sub");
+  sub.replaceChildren();
+  if (s.prev_spend_paise > 0) {
+    const pct = ((s.spend_paise - s.prev_spend_paise) / s.prev_spend_paise) * 100;
+    sub.append(el("span", { class: pct > 0 ? "up" : "down" }, `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(0)}%`),
+               ` vs ${monthLabel(s.prev_month)}`);
+  } else if (s.month) {
+    sub.textContent = `no spend recorded in ${monthLabel(s.prev_month)}`;
+  }
+}
+
+async function loadCategoryChart() {
+  const rows = await api("/api/dashboard/categories?" + qs({ month: state.month }));
+  draw("categoryChart", {
+    type: "bar",
+    data: {
+      labels: rows.map((r) => r.category),
+      datasets: [{ data: rows.map((r) => r.spend_paise / 100), backgroundColor: css("--accent"), borderRadius: 4 }],
+    },
+    options: {
+      indexAxis: "y",
+      onClick: (_e, items) => {
+        if (!items.length) return;
+        const picked = rows[items[0].index].category;
+        state.category = state.category === picked ? "" : picked;
+        $("category").value = state.category;
+        state.offset = 0;
+        loadTransactions();
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => `${inr.format(c.raw)} · ${rows[c.dataIndex].count} txns · ${(rows[c.dataIndex].share * 100).toFixed(1)}%` } },
+      },
+      scales: { x: { ticks: { callback: (v) => shortInr(v) } }, y: { ticks: { autoSkip: false } } },
+    },
+  });
+}
+
+async function loadTimeChart(monthsAvailable) {
+  if (monthsAvailable.length >= 2) {
+    $("timeTitle").textContent = "Monthly spend vs income";
+    const rows = await api("/api/dashboard/trend?" + qs({ months: 6, end: state.month }));
+    draw("timeChart", {
+      type: "bar",
+      data: {
+        labels: rows.map((r) => monthLabel(r.month)),
+        datasets: [
+          { label: "Spend", data: rows.map((r) => r.spend_paise / 100), backgroundColor: css("--debit"), borderRadius: 4 },
+          { label: "Income", data: rows.map((r) => r.income_paise / 100), backgroundColor: css("--credit"), borderRadius: 4 },
+        ],
+      },
+      options: { scales: { y: { ticks: { callback: (v) => shortInr(v) } } },
+                 plugins: { tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${inr.format(c.raw)}` } } } },
+    });
+  } else {
+    $("timeTitle").textContent = "Daily spend";
+    const rows = await api("/api/dashboard/daily?" + qs({ month: state.month }));
+    draw("timeChart", {
+      type: "bar",
+      data: {
+        labels: rows.map((r) => r.date.slice(8)),
+        datasets: [
+          { type: "bar", label: "Spend", data: rows.map((r) => r.spend_paise / 100), backgroundColor: css("--accent"), borderRadius: 3, yAxisID: "y" },
+          { type: "line", label: "Cumulative", data: rows.map((r) => r.cumulative_paise / 100), borderColor: css("--debit"), pointRadius: 0, tension: .2, yAxisID: "y2" },
+        ],
+      },
+      options: {
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y: { position: "left", ticks: { callback: (v) => shortInr(v) } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: (v) => shortInr(v) } },
+        },
+        plugins: { tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${inr.format(c.raw)}` } } },
+      },
+    });
+  }
+}
+
+function shortInr(v) {
+  if (v >= 1e5) return `₹${(v / 1e5).toFixed(1)}L`;
+  if (v >= 1e3) return `₹${(v / 1e3).toFixed(0)}k`;
+  return `₹${v}`;
+}
+
+function draw(id, config) {
+  if (!window.Chart) { $(id).replaceWith(el("div", { class: "empty" }, "Charts unavailable (Chart.js failed to load).")); return; }
+  Chart.defaults.color = css("--muted");
+  Chart.defaults.borderColor = css("--border");
+  charts[id]?.destroy();
+  config.options = { responsive: true, maintainAspectRatio: false, ...config.options };
+  charts[id] = new Chart($(id), config);
+}
+
+async function loadAnomalies() {
+  const items = await api("/api/anomalies");
+  const box = $("anomalies");
+  if (!items.length) { box.replaceChildren(el("div", { class: "empty" }, "No open anomalies.")); return; }
+  box.replaceChildren(...items.map((a) => {
+    const when = a.transaction ? a.transaction.txn_date : monthLabel(a.month);
+    return el("div", { class: "anomaly" },
+      el("span", { class: "tag" }, a.anomaly_type.replace("_", " ")),
+      el("div", { class: "note" }, a.note, el("div", { class: "meta" }, `${when}${a.category ? " · " + a.category : ""}`)),
+      el("button", { onclick: () => dismiss(a.id) }, "Dismiss"));
+  }));
+}
+
+async function dismiss(id) {
+  try {
+    await api(`/api/anomalies/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "dismissed" }) });
+    await Promise.all([loadAnomalies(), loadSummary(), loadTransactions()]);
+  } catch (e) { banner(`Couldn't dismiss: ${e.message}`, true); }
+}
+
+async function loadTransactions() {
+  const data = await api("/api/transactions?" + qs({
+    month: state.month, category: state.category, q: state.q, direction: state.direction,
+    limit: PAGE, offset: state.offset,
+  }));
+  const body = $("rows");
+  if (!data.items.length) {
+    body.replaceChildren(el("tr", {}, el("td", { colspan: 4, class: "empty" }, "No transactions match.")));
+  } else {
+    body.replaceChildren(...data.items.map(row));
+  }
+  const last = Math.min(state.offset + PAGE, data.total);
+  $("pageInfo").textContent = data.total ? `${state.offset + 1}–${last} of ${data.total}` : "";
+  $("prev").disabled = state.offset === 0;
+  $("next").disabled = last >= data.total;
+}
+
+function row(t) {
+  const narration = t.narration.replaceAll("\n", " ⏎ ");
+  const payee = el("td", {},
+    el("div", { class: "payee" }, t.merchant_normalized || narration.split(" ⏎ ")[0]),
+    el("div", { class: "narration", title: t.narration }, narration));
+  for (const type of t.anomaly_types) payee.append(" ", el("span", { class: "tag" }, type.replace("_", " ")));
+
+  const categoryCell = el("td", {});
+  if (t.txn_type === "transfer") {
+    categoryCell.append(t.category || "Transfers", " ", el("span", { class: "tag src" }, "transfer"));
+  } else {
+    const select = el("select", { "aria-label": "Category", onchange: (e) => setCategory(t, e.target) },
+      ...(t.category ? [] : [el("option", { value: "" }, "Uncategorized")]),
+      ...state.categories.map((c) => el("option", { value: c }, c)));
+    select.value = t.category ?? "";
+    categoryCell.append(select);
+    if (t.category_source) categoryCell.append(" ", el("span", { class: "tag src", title: "How this category was set" }, sourceLabel(t.category_source)));
+  }
+
+  const debit = t.amount_paise < 0;
+  return el("tr", {},
+    el("td", { class: "date" }, t.txn_date),
+    payee,
+    categoryCell,
+    el("td", { class: `amount ${debit ? "debit" : "credit"}` }, `${debit ? "−" : "+"}${money(Math.abs(t.amount_paise))}`));
+}
+
+function sourceLabel(source) {
+  return { llm: "AI", p2p_default: "P2P default", manual: "you", rule: "confirmed" }[source] ?? source;
+}
+
+async function setCategory(t, select) {
+  if (!select.value) return;
+  select.disabled = true;
+  try {
+    const result = await api(`/api/transactions/${t.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category: select.value, apply_to_payee: $("applyPayee").checked }),
+    });
+    const others = result.other_transactions_updated;
+    banner(`Set ${t.merchant_normalized || "transaction"} to ${result.category}` + (others ? ` (and ${others} other transaction${others > 1 ? "s" : ""} from this payee)` : ""));
+    await refreshMonthViews();
+  } catch (e) {
+    banner(`Couldn't update category: ${e.message}`, true);
+    select.value = t.category ?? "";
+  } finally { select.disabled = false; }
+}
+
+async function refreshMonthViews() {
+  await Promise.all([loadSummary(), loadCategoryChart(), loadTransactions()]);
+}
+
+async function refreshAll() {
+  const months = await loadMonths();
+  await Promise.all([refreshMonthViews(), loadTimeChart(months), loadAnomalies()]);
+}
+
+// --- upload ------------------------------------------------------------------
+
+async function upload(file) {
+  const button = $("upload");
+  button.disabled = true;
+  button.textContent = "Processing…";
+  banner(`Reading ${file.name}, categorizing new payees and checking for anomalies. This can take up to a minute.`);
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const r = await api("/api/statements", { method: "POST", body: form });
+    const parts = [
+      `${r.file}: ${r.account}, ${r.period_from} to ${r.period_to}`,
+      `${r.transactions} transactions (${r.inserted} new, ${r.skipped} already stored)`,
+      `${r.categorized} categorized` + (r.new_payees ? ` (${r.new_payees} new payees)` : ""),
+      `${r.anomalies_new} new anomalies`,
+    ];
+    if (r.categorize_error) parts.push(`categorization skipped: ${r.categorize_error}`);
+    if (r.categorize_failed) parts.push(`${r.categorize_failed} payees failed and will be retried`);
+    banner(parts.join(" · "), Boolean(r.categorize_error || r.categorize_failed));
+    state.month = r.period_to.slice(0, 7);
+    await refreshAll();
+  } catch (e) {
+    banner(`Upload failed: ${e.message}`, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Upload statement";
+    $("file").value = "";
+  }
+}
+
+// --- chat ----------------------------------------------------------------------
+
+const chat = { history: [], busy: false };
+const SUGGESTIONS = [
+  "What did I spend the most on this month?",
+  "Which day had the highest spend, and why?",
+  "How much went to payments to people?",
+  "Explain my open anomalies",
+];
+
+function chatMessage(role, text, extraClass = "") {
+  const node = el("div", { class: `msg ${role} ${extraClass}`.trim() }, text);
+  $("chatLog").append(node);
+  $("chatLog").scrollTop = $("chatLog").scrollHeight;
+  return node;
+}
+
+function toolDetails(calls) {
+  const details = el("details", {}, el("summary", {}, `${calls.length} ${calls.length === 1 ? "query" : "queries"} used`));
+  for (const c of calls) {
+    const status = c.error ? `error: ${c.error}` : (c.row_count != null ? `${c.row_count} rows` : "ok");
+    const body = c.name === "run_sql" ? c.args.query : JSON.stringify(c.args);
+    details.append(el("pre", {}, `${c.name} · ${status}\n${body}`));
+  }
+  return details;
+}
+
+function renderSuggestions() {
+  if (chat.history.length) return;
+  $("chatLog").replaceChildren(el("div", { class: "suggestions" },
+    ...SUGGESTIONS.map((q) => el("button", { type: "button", onclick: () => ask(q) }, q))));
+}
+
+async function ask(question) {
+  question = question.trim();
+  if (!question || chat.busy) return;
+  if (!chat.history.length) $("chatLog").replaceChildren();
+  chat.busy = true;
+  $("chatSend").disabled = true;
+  $("chatInput").value = "";
+  chatMessage("user", question);
+  const pending = chatMessage("assistant", "Thinking…");
+  try {
+    const r = await api("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: question, history: chat.history }),
+    });
+    pending.textContent = r.answer;
+    if (r.tool_calls.length) pending.append(toolDetails(r.tool_calls));
+    chat.history.push({ role: "user", text: question }, { role: "assistant", text: r.answer });
+  } catch (e) {
+    pending.textContent = `Couldn't answer: ${e.message}`;
+    pending.classList.add("error");
+  } finally {
+    chat.busy = false;
+    $("chatSend").disabled = false;
+    $("chatInput").focus();
+    $("chatLog").scrollTop = $("chatLog").scrollHeight;
+  }
+}
+
+$("chatForm").addEventListener("submit", (e) => { e.preventDefault(); ask($("chatInput").value); });
+$("chatClear").addEventListener("click", () => { chat.history = []; renderSuggestions(); });
+renderSuggestions();
+
+// --- wiring --------------------------------------------------------------------
+
+let searchTimer;
+$("q").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.q = e.target.value.trim(); state.offset = 0; loadTransactions(); }, 250);
+});
+$("category").addEventListener("change", (e) => { state.category = e.target.value; state.offset = 0; loadTransactions(); });
+$("direction").addEventListener("change", (e) => { state.direction = e.target.value; state.offset = 0; loadTransactions(); });
+$("prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - PAGE); loadTransactions(); });
+$("next").addEventListener("click", () => { state.offset += PAGE; loadTransactions(); });
+$("month").addEventListener("change", async (e) => {
+  state.month = e.target.value || null;
+  state.offset = 0;
+  await Promise.all([refreshMonthViews(), loadTimeChart(await api("/api/months"))]);
+});
+$("upload").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", (e) => { if (e.target.files[0]) upload(e.target.files[0]); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => refreshAll());
+
+(async function init() {
+  try {
+    state.categories = await api("/api/categories");
+    $("category").append(...["Uncategorized", ...state.categories].map((c) => el("option", { value: c }, c)));
+    await refreshAll();
+  } catch (e) {
+    banner(`Couldn't load dashboard: ${e.message}`, true);
+  }
+})();
+</script>
+</body>
+</html>
