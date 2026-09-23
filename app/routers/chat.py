@@ -59,4 +59,5 @@ def chat(body: ChatRequest,
              "row_count": t.result.get("row_count")}
             for t in result.tool_calls
         ],
+        "unverified": result.unverified,
     }

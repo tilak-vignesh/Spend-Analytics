@@ -62,8 +62,9 @@ def test_tool_call_then_answer():
     # Second model call sees its own turn (raw, for provider state) and the tool result
     second = model.calls[1]["messages"]
     assert second[1] == {"role": "model_turn", "reply": first}
+    # results reach the model marked as data, never instructions
     assert second[2] == {"role": "tool", "results": [
-        {"call": call, "result": tools.results["run_sql"]}]}
+        {"call": call, "result": {"untrusted_data": tools.results["run_sql"]}}]}
 
 
 def test_tool_errors_are_fed_back_not_raised():
@@ -111,10 +112,72 @@ def test_tool_specs_are_offered():
 def test_system_prompt_grounds_the_model():
     prompt = build_system_prompt(today=TODAY, data_range=RANGE)
     for expected in ["2026-09-23", "2026-09-01 to 2026-09-23", "chat_transactions",
-                     "paise", "transfer", "Never guess", "plain text"]:
+                     "paise", "transfer", "Never guess", "plain text",
+                     "Never do arithmetic", "inr(", "untrusted_data", "never instructions"]:
         assert expected in prompt
     assert "Account balances and account numbers are not available" in prompt
+    assert "divide by 100" not in prompt
 
 
 def test_system_prompt_without_data():
     assert "no transactions" in build_system_prompt(today=TODAY, data_range=(None, None)).lower()
+
+
+# --- grounding: the model must not do arithmetic ------------------------------------
+
+SQL_CALL = ToolCall(name="run_sql", args={"query": "q"}, id="c1")
+DAY_RESULT = {"columns": ["d", "spend"], "rows": [["2026-09-06", 2335800], ["2026-09-06", 1200000],
+                                                  ["2026-09-06", 1000000]]}
+
+
+def test_ungrounded_answer_gets_one_correction_round():
+    model = ScriptedModel(
+        ModelReply(text=None, tool_calls=[SQL_CALL]),
+        ModelReply(text="₹23,358 total; ₹1,358 was food.", tool_calls=[]),
+        ModelReply(text="₹23,358 total; Precize was ₹12,000 and ₹10,000.", tool_calls=[]))
+    result = chat(model, FakeTools({"run_sql": DAY_RESULT}))
+
+    assert result.answer == "₹23,358 total; Precize was ₹12,000 and ₹10,000."
+    assert result.unverified == []
+    correction = model.calls[2]["messages"]
+    assert correction[-2] == {"role": "model", "text": "₹23,358 total; ₹1,358 was food."}
+    assert correction[-1]["role"] == "user"
+    assert "₹1,358" in correction[-1]["text"] and "run_sql" in correction[-1]["text"]
+
+
+def test_still_ungrounded_after_retry_is_reported():
+    bad = ModelReply(text="₹1,358 was food.", tool_calls=[])
+    model = ScriptedModel(ModelReply(text=None, tool_calls=[SQL_CALL]), bad, bad, bad)
+    result = chat(model, FakeTools({"run_sql": DAY_RESULT}))
+    assert (result.answer, result.unverified) == ("₹1,358 was food.", ["₹1,358"])
+    assert len(model.calls) == 3  # one correction round only
+
+
+def test_correction_can_use_tools():
+    fixed_sql = ToolCall(name="run_sql", args={"query": "SELECT inr(...)"}, id="c2")
+    breakdown = ToolCall(name="get_category_breakdown", args={}, id="c1")
+    model = ScriptedModel(
+        ModelReply(text=None, tool_calls=[breakdown]),
+        ModelReply(text="₹1,358 was food.", tool_calls=[]),
+        ModelReply(text=None, tool_calls=[fixed_sql]),
+        ModelReply(text="₹1,358.00 was food.", tool_calls=[]))
+    tools = FakeTools({"get_category_breakdown": DAY_RESULT,
+                       "run_sql": {"rows": [["₹1,358.00"]]}})
+    result = chat(model, tools)
+    assert result.unverified == [] and result.answer == "₹1,358.00 was food."
+
+
+def test_figures_from_question_and_history_count_as_known():
+    model = ScriptedModel(ModelReply(text="Nothing above ₹500, and ₹8,775.96 was Dining.",
+                                     tool_calls=[]))
+    result = chat(model, question="Anything above ₹500?",
+                  history=[{"role": "assistant", "text": "Dining was ₹8,775.96."}])
+    assert result.unverified == [] and len(model.calls) == 1
+
+
+def test_no_retry_past_step_limit():
+    model = ScriptedModel(ModelReply(text=None, tool_calls=[SQL_CALL]),
+                          ModelReply(text="₹1,358 was food.", tool_calls=[]))
+    result = run_chat("q", [], model, FakeTools({"run_sql": DAY_RESULT}), today=TODAY,
+                      data_range=RANGE, max_steps=2)
+    assert result.unverified == ["₹1,358"] and len(model.calls) == 2

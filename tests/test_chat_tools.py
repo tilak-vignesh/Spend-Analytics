@@ -153,3 +153,14 @@ def test_specs_describe_every_tool(tools):
     assert names == ["run_sql", "get_category_breakdown", "get_anomalies"]
     for spec in tools.specs:
         assert spec["description"] and spec["parameters"]["type"] == "object"
+
+
+def test_inr_sql_function_formats_paise(tools):
+    r = tools.call("run_sql", {"query": "SELECT inr(SUM(-amount_paise)), inr(NULL), inr(-5740) "
+                                        "FROM chat_transactions WHERE txn_date >= '2026-09-01' "
+                                        "AND amount_paise < 0 AND txn_type IS NOT 'transfer'"})
+    assert r["rows"] == [["₹1,939.13", None, "-₹57.40"]]
+
+
+def test_run_sql_description_mentions_inr(tools):
+    assert "inr(" in tools.specs[0]["description"]

@@ -35,6 +35,12 @@ def _make_authorizer(schema_objects: set[str]):
     return authorize
 
 
+def _inr(paise):
+    """SQL function inr(paise) -> '₹1,23,456.78', so even unit conversion and
+    formatting happen in SQL rather than in the model."""
+    return None if paise is None else format_inr(int(round(paise)))
+
+
 def _iso(value: Any, name: str) -> date:
     try:
         return date.fromisoformat(value)
@@ -48,7 +54,9 @@ SPECS = [
         "description": (
             "Run one read-only SQLite SELECT (or WITH ... SELECT) query. Only the views "
             "chat_transactions and chat_anomalies and the table categories can be read. "
-            "Amounts are integer paise (divide by 100 for rupees); debits are negative. "
+            "Amounts are integer paise; debits are negative. Format money in SQL with "
+            "inr(paise), e.g. SELECT inr(SUM(-amount_paise)) -> '₹8,775.96'. Do every "
+            "calculation (sums, differences, averages, percentages) in the query. "
             "At most 200 rows are returned."
         ),
         "parameters": {
@@ -118,6 +126,7 @@ class ChatTools:
         schema_objects = {name for (name,) in conn.execute(
             "SELECT name FROM sqlite_master UNION SELECT 'sqlite_master' "
             "UNION SELECT 'sqlite_schema'")}
+        conn.create_function("inr", 1, _inr, deterministic=True)
         conn.set_authorizer(_make_authorizer(schema_objects))
         deadline = time.monotonic() + self.timeout_ms / 1000
         conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 10_000)

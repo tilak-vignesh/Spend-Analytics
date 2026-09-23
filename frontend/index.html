@@ -94,6 +94,7 @@
   .msg summary { cursor: pointer; }
   .msg pre { margin: 6px 0 0; padding: 8px; background: var(--surface); border: 1px solid var(--border);
              border-radius: 6px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+  .msg .unverified { margin-top: 6px; font-size: 12px; color: var(--warn); white-space: normal; }
   .chat-form { display: flex; gap: 8px; margin-top: 12px; }
   .chat-form input { flex: 1; font: inherit; color: var(--text); background: var(--surface);
                      border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
@@ -503,6 +504,10 @@ async function ask(question) {
       body: JSON.stringify({ message: question, history: chat.history }),
     });
     pending.textContent = r.answer;
+    if (r.unverified.length) {
+      pending.append(el("div", { class: "unverified" },
+        `⚠ Not found in the queried data, so treat with caution: ${r.unverified.join(", ")}`));
+    }
     if (r.tool_calls.length) pending.append(toolDetails(r.tool_calls));
     chat.history.push({ role: "user", text: question }, { role: "assistant", text: r.answer });
   } catch (e) {

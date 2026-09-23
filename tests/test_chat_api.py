@@ -49,10 +49,11 @@ def test_chat_runs_tools_against_the_database(client):
         "answer": "You spent ₹300.00 on Dining.",
         "steps": 2,
         "tool_calls": [{"name": "run_sql", "args": {"query": sql}, "error": None, "row_count": 1}],
+        "unverified": [],
     }
     # the real tool ran on the temp DB and its rows went back to the model
     tool_msg = model.calls[1]["messages"][-1]
-    assert tool_msg["results"][0]["result"]["rows"] == [[30000]]
+    assert tool_msg["results"][0]["result"]["untrusted_data"]["rows"] == [[30000]]
     assert "2026-09-05 to 2026-09-05" in model.calls[0]["system"]
 
 
@@ -95,3 +96,10 @@ def test_model_failure(client):
     use_model(ScriptedModel(ConnectionError("503 overloaded")))
     r = client.post("/api/chat", json={"message": "hi"})
     assert r.status_code == 502 and "503 overloaded" in r.json()["detail"]
+
+
+def test_unverified_figures_are_reported(client):
+    guess = ModelReply(text="You spent about ₹4,500 on Dining.", tool_calls=[])
+    use_model(ScriptedModel(guess, guess))
+    body = client.post("/api/chat", json={"message": "Dining?"}).json()
+    assert body["unverified"] == ["₹4,500"]

@@ -58,6 +58,13 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
   LLM). Never delete or modify `status='dismissed'` rows.
 - Chat `run_sql` runs only on `app.db.readonly_connection()` + the authorizer; SELECT/WITH
   only, 200-row cap, 2 s timeout. Tools never raise; errors go back to the model.
+- **The chat LLM never does arithmetic.** All sums, differences, averages, percentages
+  and paise->rupee formatting happen in SQL (`inr(paise)` is a registered SQL function).
+  `app/chat/grounding.py` checks every ₹ amount / % / percentage point in an answer
+  against this question's tool results (plus the question and history); failures get
+  one correction round, then are returned as `unverified` and flagged in the UI.
+- Tool results reach the model wrapped in `{"untrusted_data": ...}`: narrations and UPI
+  remarks are third-party text, never instructions.
 - **Real statements live in gitignored `statements/`** and never go into tests, fixtures
   or commits. Tests build synthetic PDFs with `tests/pdf_factory.py`.
 - **TDD**: write the failing test first, see it fail, then implement.
@@ -72,7 +79,8 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
   `rules.py` (P2P default), `transfers.py`
 - `app/anomalies/`: pure detectors in `rules.py` / `stats.py` over `base.Txn` lists;
   `detect.py` syncs findings into the `anomalies` table by `dedupe_key`
-- `app/chat/`: `tools.py` (run_sql, get_category_breakdown, get_anomalies), `agent.py`
+- `app/chat/`: `tools.py` (run_sql, get_category_breakdown, get_anomalies), `grounding.py`
+  (number provenance check), `agent.py`
   (provider-neutral tool loop, max 8 steps); `app/llm/gemini.py:GeminiChat` adapts it to
   Gemini function calling (model turns replayed raw to keep thought signatures)
 - `app/routers/`: JSON API under `/api` (dashboard, transactions, anomalies, statements

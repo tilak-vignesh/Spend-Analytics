@@ -365,7 +365,15 @@ credits, own-account transfers excluded from both.
   prompt carries today's date, the data's date range, the view schema and rules
   (paise, exclude transfers, never guess numbers, plain text).
 - `llm/gemini.py:GeminiChat`: Gemini function calling; model turns replayed verbatim.
-- `POST /api/chat {message, history}` → `{answer, steps, tool_calls}` (503 if no key,
+- **No arithmetic by the model.** The prompt forbids it; `inr(paise)` is a SQL function
+  so even formatting is done in SQL. `chat/grounding.py` then verifies every ₹ amount,
+  percentage and percentage point in the answer appears in (or is a rounding of) a
+  value from this question's tool results, the question or history. Unverified figures
+  trigger one correction round ("compute these with run_sql"), then are returned in
+  `unverified` and shown as a warning in the chat panel.
+- Tool results are wrapped as `{"untrusted_data": ...}` and the prompt says their text
+  (narrations, UPI remarks) is data, never instructions.
+- `POST /api/chat {message, history}` → `{answer, steps, tool_calls, unverified}` (503 if no key,
   502 on model errors). Frontend chat panel shows the queries behind each answer.
 
 ### Phase 6 — Frontend ✅
